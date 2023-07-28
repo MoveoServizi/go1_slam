@@ -3,22 +3,13 @@
 
 
 
-<link name="map"/>
-<link name="odom"/>
-
-<joint name="my_joint" type="fixed">
-    <origin xyz="0 0 0" rpy="0 0 0"/>
-    <parent link="odom"/>
-    <child link="map"/>
- </joint>
+<link name="base_footprint"/>
 
 <xacro:property name="constant" value="1/12"/>
 <xacro:property name="mass" value="1.0"/>
 <xacro:property name="height" value="0.1"/>
 <xacro:property name="width" value="0.8"/>
 <xacro:property name="depth" value="0.7"/>
-
-
 
 
 <link name="base_link">
@@ -49,7 +40,7 @@
 
 <joint name="base_joint" type="fixed">
     <origin xyz="0.0 0.0 0.135" rpy="0.0 0.0 0.0"/>
-    <parent link="odom"/>
+    <parent link="base_footprint"/>
     <child link="base_link"/>
     <axis xyz="0.0 0.0 0.0"/>
 </joint>
@@ -109,7 +100,7 @@
 
 <gazebo>
   <plugin name="skid_steer_drive_controller" filename="libgazebo_ros_skid_steer_drive.so">
-    <updateRate>5.0</updateRate>
+    <updateRate>10.0</updateRate>
     <robotNamespace>/</robotNamespace>
     <leftFrontJoint>wheel_front_left_joint</leftFrontJoint>
     <rightFrontJoint>wheel_front_right_joint</rightFrontJoint>
@@ -121,9 +112,6 @@
     <torque>3</torque>
     <topicName>cmd_vel</topicName>
     <broadcastTF>true</broadcastTF>
-    <odometryTopic>odom</odometryTopic>
-    <odometryFrame>odom</odometryFrame>
-    <robotBaseFrame>base_footprint</robotBaseFrame>
   </plugin>
 </gazebo>
 
