@@ -30,11 +30,10 @@ class occupancy_grid:
         map_msg.info.resolution = self.resolution
         map_msg.info.width = self.width
         map_msg.info.height = self.height
-        map_msg.data = np.zeros(self.width*self.height, dtype=np.int)
+        map_msg.data = np.zeros(self.width*self.height, dtype=int)
 
         # initialize grid with -1 (unknown)
-        self.grid = np.ndarray((self.width, self.height), buffer=np.zeros((self.width, self.height), dtype=np.int),
-                dtype=np.int)
+        self.grid = np.ndarray((self.width, self.height), buffer=np.zeros((self.width, self.height), dtype=int),dtype=int)
         self.grid.fill(int(-1))
 
         # set map origin [meters]

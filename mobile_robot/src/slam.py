@@ -15,6 +15,8 @@ from visualization_msgs.msg import Marker
 #from scipy.ndimage import gaussian_filter1d
 import statistics
 
+from nav_msgs.msg import OccupancyGrid
+
 maximum = 115
 minimum = 350
 
@@ -71,7 +73,180 @@ def cmd_publisher(x,z):                                 ## Publish on cmd_vel to
     pub.publish(msg)
         #rate.sleep()
 
+def plot_points(points,colors, ax):                     ## Plot mean points 
+          # Define colors for each point
+            #print(points)
+            # Plot each Hough point with a different color
+            for i in range(len(points)):
+                ax.scatter(points[i][0], points[i][1], color=colors, label=f'Point {i+1}')
+            
+            ax.set_xlabel('X Mean')
+            ax.set_ylabel('Y Mean')
+            ax.set_title('Mean Points')
+            ax.set_xlim(-12, 12)
+            ax.set_ylim(-12, 12)
+
+            ax.legend()
+
+def plot_point(point,color, ax):                        ## Plot mean points 
+          # Define colors for each point
+            #print(points)
+            # Plot each Hough point with a different color
+            # a=point[0]
+            # b=point[1]
+
+            (x, y) = point
+
+            ax.scatter(x, y, color=color, label=f'coin')
+            ax.set_xlabel('X Mean')
+            ax.set_ylabel('Y Mean')
+            ax.set_title('Mean Points')
+            ax.set_xlim(-12, 12)
+            ax.set_ylim(-12, 12)
+
+            ax.legend()
+    
+def polar_to_cartesian(tab,index):                      ## From polar to cartesian coordinates
+    angle1 = math.radians(index)
+    x = round(tab[index] * math.cos(angle1),2)
+    y = round(tab[index] * math.sin(angle1),2)
+    point=(float(x),float(y))
+
+    return point
+
 #----------------------CLASS------------------------------#
+class Doors:                                            ## Identify probable doors and get point to explore later
+    def __init__(self):
+        looking_for_doors =1
+
+    def perpendicular_projection(self,point1, point2):  ## Used to have doors entry points
+        # Calcul du milieu de la ligne
+        midpoint = ((point1[0] + point2[0]) / 2, (point1[1] + point2[1]) / 2)
+        
+        # Calcul du vecteur direction de la ligne
+        direction_vector = (point2[0] - point1[0], point2[1] - point1[1])
+        
+        # Calcul de la longueur du vecteur direction
+        length = math.sqrt(direction_vector[0] ** 2 + direction_vector[1] ** 2)
+        
+        # Si la longueur est nulle, les points d'entrée sont identiques, retourner les deux points
+        if length == 0:
+            return point1, point2
+        
+        # Calcul du vecteur perpendiculaire
+        perpendicular_vector = (-round(direction_vector[1],2), round(direction_vector[0],2))
+        
+        # Normalisation du vecteur perpendiculaire
+        normalized_perpendicular = (perpendicular_vector[0] / length, perpendicular_vector[1] / length)
+        
+        # Calcul des points de projection
+        projection1 = (round(midpoint[0] + normalized_perpendicular[0],2), round(midpoint[1] + normalized_perpendicular[1],2))
+        projection2 = (round(midpoint[0] - normalized_perpendicular[0],2), round(midpoint[1] - normalized_perpendicular[1],2))
+        
+        return projection1, projection2
+
+    def find_doors(self,tab):
+        n = len(tab)
+        indices = []
+        order = []
+        points_type=[]
+        points=[]
+        cpt4=0
+        for i in range(n - 1):
+            if (tab[i]-tab[i+1]>1.5) or (tab[i+1]-tab[i]>1.5): ## if two neighbour points are at more than 1m
+
+                if tab[i]>tab[i+1]+1: ## if the first point seen in the pair is the farthest => 01
+                    order.append(0)
+                    order.append(1)
+                    indices.append(i+1)
+                    points_type.append(2)
+                elif tab[i+1]>tab[i]+1:
+                    order.append(1)
+                    order.append(0)
+                    indices.append(i)
+                    points_type.append(3)
+        
+        # Filtering double 3 or double 2 : a 3 must be followed by a 2 in order to complete the door. 
+        # If a 3 is following a 3, it means that we saw the opening of a door into another door
+        m=len(points_type)
+        for i in range(len(points_type)-1):
+            if points_type[i]==points_type[i+1]:
+                points_type[i+1]=4
+                indices[i+1]=361
+                cpt4+=1
+                
+        if cpt4!=0:
+            for i in range(cpt4):
+                points_type.remove(4)
+                indices.remove(361)
+
+        for i in range(len(indices)): 
+            angle1 = math.radians(indices[i])
+            x1 = round(tab[indices[i]] * math.cos(angle1),2)
+            y1 = round(tab[indices[i]] * math.sin(angle1),2)
+            point1=(x1,y1)
+            points.append(point1)
+        
+        # print("indicestab   :",indices)       ## indices of points seen like end or start of a door
+        # print("points type  :",points_type)   ## corresponding types of these points (3 for start and 2 for end)
+        # print("points coord :",points)        ## coordinates of these points 
+        return indices,points_type,points
+
+    def plot_doors(self,tab,ax):
+        indices,points_type,points = self.find_doors(tab)
+
+        # print("orange points :",points)       ## points seen like end or start of a door
+        # for i in range(len(points)):
+        #     plot_point(points[i],'orange',ax)
+
+        doors_beginning = []
+        doors_ending = []
+        count=0
+        l=len(points_type)
+        m=int(l/2)
+        doors=[[0] * 4 for i in range(m)]
+        solo_points=[]
+        doorspoints=[]
+
+        if points_type[0]==2: ## Array starts with end of a door without beginning
+            solo_points.append(indices[0])
+            for i in range(l-1):
+                if i!=0:
+                    if points_type[i]==3:
+                        p1=polar_to_cartesian(tab,indices[i])
+                        p2=polar_to_cartesian(tab,indices[i+1])
+                        projection1,projection2=self.perpendicular_projection(p1,p2)
+                        doorspoints.append(p1)
+                        doorspoints.append(p2)
+                        doorspoints.append(projection1)
+                        doorspoints.append(projection2)
+
+                        count+=1
+        elif points_type[0]==3: ## Array starts with end of a door without beginning
+            for i in range(l-1):
+                if points_type[i]==3:
+                    p1=polar_to_cartesian(tab,indices[i])
+                    p2=polar_to_cartesian(tab,indices[i+1])
+                    projection1,projection2=self.perpendicular_projection(p1,p2)                
+                    doorspoints.append(p1)
+                    doorspoints.append(p2)
+                    doorspoints.append(projection1)
+                    doorspoints.append(projection2)
+                    count+=1
+       
+        if len(doorspoints)!=0:
+            plot_points(doorspoints,'pink',ax)
+        print(" doors    : ", doorspoints)
+
+class get_grid:
+    def __init__(self):
+        occ_subscriber = rospy.Subscriber("/map", OccupancyGrid ,self.local_grid )
+        self.grid = []
+
+    def local_grid(self,data):
+        self.grid=data
+        print(self.grid)
+
 class Quaternion:                                       ## Quaternion
     def __init__(self, w, x, y, z):
         self.w = w
@@ -198,8 +373,8 @@ class GetObs:                                           ## Get and plot obstacle
         plt.xlabel('X')
         plt.ylabel('Y')
         plt.title('Obstacle Map')
-        plt.xlim(-7, 7)  
-        plt.ylim(-7, 7)  
+        plt.xlim(-12, 12)  
+        plt.ylim(-12, 12)  
         plt.grid(True)
         plt.pause(0.001)   #pause to allow plot to update
 
@@ -251,9 +426,10 @@ class Wall_follower:                                    ## Follow a wall, left o
     #----------------------------------------------------------------------------------------------------------------------------------------------------------------#
     # The objective of this class is to follow a wall (left, or right). This class allows the robot to : chose a wall to follow. Manage the cases in which obstacles
     # are too close or too far from the robot, updating the robot's trajectory. 
-    ## to do : 
-    ##  -if obstacle in front but space between wall followed and front obs -> pass between
-    ##  -if no more obstacle seen :  back in itial "go straight" state
+    # to do : 
+    #  -if obstacle in front but space between wall followed and front obs -> pass between
+    #  -if no more obstacle seen :  back in itial "go straight" state
+
     def __init__(self):
 
         self.new_side=''
@@ -275,8 +451,8 @@ class Wall_follower:                                    ## Follow a wall, left o
 
             return z_angle_cmd, x_cmd
 
-    def indices_valeurs_inf_1(self,tableau):            ## Returns indices in array (ex : lidar_points) of obs closer than 1 meter (useless for the moment)
-        indices_inferieurs_a_1 = [i for i, valeur in enumerate(tableau) if valeur < 1]
+    def indices_valeurs_inf_1(self,secu_dist,tableau):            ## Returns indices in array (ex : lidar_points) of obs closer than 1 meter (useless for the moment)
+        indices_inferieurs_a_1 = [i for i, valeur in enumerate(tableau) if valeur < secu_dist]
         return indices_inferieurs_a_1
 
     def indices_valeurs_sup_4(self,tableau):            ## Returns indices in array (ex : lidar_points) of obs farther than 1 meter (useless for the moment)
@@ -299,24 +475,112 @@ class Wall_follower:                                    ## Follow a wall, left o
         indices_cinq_plus_petites = [t[0] for t in tableau_trie[:5]]
         return indices_cinq_plus_petites
 
+    def choose_side2(self,previous_side, lidar_points):  ## Update the current side or mode we want to follow
+        #print('Check side')
+        self.previous_side=previous_side
+        mode=0
+        ind_close = self.indices_valeurs_inf_1(1,lidar_points)
+        print(" indices close (<1m) : ", ind_close)
+
+        section = { #'front': min(lidar_points[0:30] + lidar_points[331:360]),  ## Lidar sections importants for navigation
+                    'left'          : min(lidar_points[0  :110]),               ## side which will give PF in getobs class
+                    'left_to_back'  : min(lidar_points[115:130]),               ## watch to know when go from left observation to back observation
+                    'left_to_right' : min(lidar_points[351:356]),               ## same thing for left to right
+                    'left_no_more1'  : min(lidar_points[ 90:100]),              ## watch to confirm that no more obs on left and then go to back obs
+                    
+                    'back'  : min(lidar_points[131:230]),
+                    'back_to_left' : min(lidar_points[72:77]),
+                    'back_to_right' : min(lidar_points[270:275]),
+
+                    'right'         : min(lidar_points[249:359]),
+                    'right_to_left' : min(lidar_points[6  :11 ]),
+                    'right_to_back' : min(lidar_points[230:245]),
+                    'right_no_more1': min(lidar_points[260:270])
+                    }
+        
+        #--------- MAZE MODE : the main will use the "mode" value to change the range of points seen to be more precise on a side-----------#
+        #--------- used in case of close obstacles around the robot, allow to approach closer to obs (see use in manage_close)   -----------#
+        
+        ## Enter in maze mode
+        if section['left']<1.5 and section['right']<1.5:    
+            if previous_side=='left':
+                self.new_side='left_maze'
+                mode=1
+            elif previous_side=='right':
+                self.new_side='right_maze'
+                mode=1
+        
+        ## exit from maze mode (to see in main)
+        elif section['left']>2 and section['right']>=2:     
+            mode=0
+            if previous_side=='left_maze':
+                self.new_side='left'
+                mode=2
+            elif previous_side=='right_maze':
+                self.new_side='right'
+                mode=2
+        
+        #--------- NORMAL MODE-----------#  
+
+        if previous_side == 'None' :                                            ## from NONE to detect one side
+            mode=0
+            if section['left']<10 and section['right']<10:                      ## both left and right sides on vision 
+                if section['left']<section['right']:
+                    self.new_side='left'
+                elif section['right']<section['left']:                          ## chose the closest       
+                    self.new_side='right'
+            
+            elif section['left']<10:                                            ## if only left : follow left
+                self.new_side='left'
+                
+            elif section['right']<10:                                           ## if only right : follow right
+                self.new_side='right'
+            
+            # elif section['back']<10:                                          ## if only back : follow back   /!\ TO ADD /!\
+            #     self.new_side='back'
+        
+        ## from left to other sides 
+        elif previous_side == 'left' :                                          
+            if section['left_to_back']<10 and section['left_no_more1']>=10 :    ## check if still see the wall on back_left side, and if still no more wall on front_left
+                self.new_side='back'
+        
+        ## from right to other sides
+        elif previous_side == 'right' :                                         
+            if section['right_to_back']<10 and section['right_no_more1']>=10 :  ## check if still see the wall on back_right side, and if still no more wall on front_right
+                self.new_side='back'
+        
+        ## from back to other sides 
+        elif previous_side=='back':
+            if section['back_to_left']<10:
+                self.new_side='left'
+            elif section['back_to_right']<10:
+                self.new_side='right'
+
+        ## nothin on lidar : NONE
+        elif lidar_points == []:
+            self.new_side='None'
+            mode=0
+
+        return self.new_side, mode
+
     def choose_side(self,previous_side, lidar_points):  ## Update the current side or mode we want to follow
             #print('Check side')
             self.previous_side=previous_side
             mode=0
             section = { #'front': min(lidar_points[0:30] + lidar_points[331:360]),  ## Lidar sections importants for navigation
-                        'left'          : min(lidar_points[0  :110]),               ## side which will give PF in getobs class
-                        'left_to_back'  : min(lidar_points[115:130]),               ## watch to know when go from left observation to back observation
-                        'left_to_right' : min(lidar_points[351:356]),               ## same thing for left to right
-                        'left_no_more1'  : min(lidar_points[ 90:100]),              ## watch to confirm that no more obs on left and then go to back obs
+                        'left'          : min(lidar_points[0  :110],default="EMPTY"),               ## side we will observe (PF in getobs class)
+                        'left_to_back'  : min(lidar_points[115:130],default="EMPTY"),               ## watch to know when go from left observation to back observation
+                        'left_to_right' : min(lidar_points[351:356],default="EMPTY"),               ## same thing for left to right
+                        'left_no_more1'  : min(lidar_points[ 90:100],default="EMPTY"),              ## watch to confirm that no more obs on left and then go to back obs
                         
-                        'back'  : min(lidar_points[131:230]),
-                        'back_to_left' : min(lidar_points[72:77]),
-                        'back_to_right' : min(lidar_points[270:275]),
+                        'back'  : min(lidar_points[131:230],default="EMPTY"),
+                        'back_to_left' : min(lidar_points[72:77],default="EMPTY"),
+                        'back_to_right' : min(lidar_points[270:275],default="EMPTY"),
 
-                        'right'         : min(lidar_points[249:359]),
-                        'right_to_left' : min(lidar_points[6  :11 ]),
-                        'right_to_back' : min(lidar_points[230:245]),
-                        'right_no_more1': min(lidar_points[260:270])
+                        'right'         : min(lidar_points[249:359],default="EMPTY"),
+                        'right_to_left' : min(lidar_points[6  :11 ],default="EMPTY"),
+                        'right_to_back' : min(lidar_points[230:245],default="EMPTY"),
+                        'right_no_more1': min(lidar_points[260:270],default="EMPTY" )
                         }
             
             #--------- MAZE MODE : the main will use the "mode" value to change the range of points seen to be more precise on a side-----------#
@@ -417,8 +681,13 @@ class Wall_follower:                                    ## Follow a wall, left o
                         x_cmd=0
                         angle_cmd= 1.5
                 elif self.new_side=='right' or self.previous_side=='right' or self.new_side=='right_maze'or self.previous_side=='right_maze':
-                    x_cmd=0
-                    angle_cmd= -1.5
+                    if (section['left_close']>= section['right_close']) :
+                        x_cmd=0
+                        angle_cmd= -1.5
+                    elif (section['left_close']< section['right_close']) :
+                        x_cmd=0
+                        angle_cmd= 1.5
+                    
 
             #### manage for left and right sides       /!\ maybe check that sections are well defined and cause no problems when a side is close to obs
             elif section['left_close']< lim and section['right_close']< lim :
@@ -477,6 +746,25 @@ class Wall_follower:                                    ## Follow a wall, left o
             too_far=1
         return too_far, angle_cmd
 
+    def coins(self, lidar_points):
+        indices,door_points_type = distclose(lidar_points)
+        #print("closesttab",closest)
+        print("indicestab",indices)
+        coins=[]
+        #door_points_type=[]
+        n = len(indices)
+        #m = int(len(closest)/2)
+        for i in range(n):
+
+            angle1 = math.radians(indices[i])
+            x1 = round(lidar_points[indices[i]] * math.cos(angle1),2)
+            y1 = round(lidar_points[indices[i]] * math.sin(angle1),2)
+            point1=(x1,y1)
+
+            coins.append(point1)
+ 
+        return coins, door_points_type
+
 class HoughTransform:                                   ## Trace line trajectory from obstacle points (usefull for wall_follower)
 
     #----------------------------------------------------------------------------------------------------------------------------------------------------------------#
@@ -487,9 +775,9 @@ class HoughTransform:                                   ## Trace line trajectory
     # and create a line between this mean_point and the Hough Point.                                                                                                 #
     #----------------------------------------------------------------------------------------------------------------------------------------------------------------#
     
-    def hough_point(self, x, y):                        ## Calculate radius array for each theta of a fake polar point linked to a Lidar Point
-        tab_t = [0, 10, 20, 30, 40, 50,60,70,80,90,100,110,120,130,140,150,160,170] # angles we want to check for all points
-        rays = [0] * len(tab_t)                                                      # array that will have the radius values for each angles
+    def hough_point(self, x, y):    ## Calculate radius array for each theta of a fake polar point linked to a Lidar Point
+        tab_t = [0, 10, 20, 30, 40, 50,60,70,80,90,100,110,120,130,140,150,160,170]     # angles we want to check for all points
+        rays = [0] * len(tab_t)                                                         # array that will have the radius values for each angles
         h = math.sqrt(x*x + y*y)
 
         if y>=0:
@@ -750,21 +1038,28 @@ def main():
     hough = HoughTransform()
     odom = Odom()
     wall = Wall_follower()
+    grid = get_grid()
+    doors = Doors()
+    
+    doormode =1
     #side_before=''
 
     def plot_data():
         fig, ax = plt.subplots()
         while not rospy.is_shutdown():
             ax.clear()
-           
-            getobs.plot_map(getobs.Pfull,'black')                                                                       # Plot in black all the points seen by the Lidar
-            new_side, new_mode=wall.choose_side(getobs.side,getobs.list_points)
-            danger, react_angle, react_x = wall.manage_close(new_mode,getobs.list_points)                               # Call the distance function (used when an obstacle is found)                                                                        
             print('-------------------------------')
+            getobs.plot_map(getobs.Pfull,'black')                                                                           # Plot in black all the points seen by the Lidar
+            new_side, new_mode=wall.choose_side(getobs.side,getobs.list_points)
+            danger, react_angle, react_x = wall.manage_close(new_mode,getobs.list_points)                                   # Call the distance function (used when an obstacle is found)                                                                        
+            
+            ## recognize doors : there may have some issues to trat that unable slam
+            #doors.plot_doors(getobs.list_points,ax)
+            
             print(' new side : ',new_side)
             print(' new mode : ',new_mode)
             print(' Danger   : ',danger)
-
+        
             ######  No side followed
             if getobs.side=='None':
                 print('None side : ', getobs.side)
@@ -776,7 +1071,7 @@ def main():
                 ######  check if obstacle seen --> change side
                 if len(getobs.Pfull)!=0:
                     previous_side=getobs.side              
-                    getobs.side=new_side                    # <--------------------                                     # Change side on GetObs to watch only the good section of Pfull
+                    getobs.side=new_side                    # <--------------------                                         # Change side on GetObs to watch only the good section of Pfull
                     print('New side found : ',getobs.side)
             
             
@@ -790,16 +1085,16 @@ def main():
                 
                 ###### Obstacle seen on the side followed
                 else : 
-                    getobs.plot_map(getobs.PF,'Blue')                                                                   # Plot in blue obstacle followed
+                    getobs.plot_map(getobs.PF,'Blue')                                                                       # Plot in blue obstacle followed
                     print(' nb of observed points : ', len(getobs.PF))
                     
                     ###### Check if still something on side watched
                     if len(getobs.PF) != 0 :
                         ###### If almost no more obs on side ---> change side (usefull for GO BACK)                                                      
-                        if len(getobs.PF) < 5:                                                                          # If almost no more obs on the side watched
+                        if len(getobs.PF) < 5:                                                                              # If almost no more obs on the side watched
                                                                                                 
-                            previous_side=getobs.side                                                                   # Change the side watched
-                            getobs.side=new_side            # <--------------------                                     # Change side on GetObs to watch only the good section of Pfull
+                            previous_side=getobs.side                                                                       # Change the side watched
+                            getobs.side=new_side            # <--------------------                                         # Change side on GetObs to watch only the good section of Pfull
                             print('SIDE CHANGED : ', getobs.side)
                         
                         ################################################
@@ -839,7 +1134,7 @@ def main():
                         else:
                             ###### If still something on side watched 
                             if getobs.PF !=[]:
-                                print('current_side : ', getobs.side)                                                                              # We can follow a wall
+                                print('current_side : ', getobs.side)                                                       # We can follow a wall
                                 hough_points, mean_points = hough.best_hough_point(getobs.PF[:, 0], getobs.PF[:, 1])        # Create hough and mean points on side watched
                                 if hough_points is not None and mean_points is not None:
                                     too_far, far_cmd = wall.far_from_mean(mean_points[0])                                                      
@@ -851,6 +1146,13 @@ def main():
                                         angle_cmd, x_cmd = wall.manage_far(mean_points[0])
                                         print('Try get closer to ',new_side,' wall : x =', x_cmd, ', angle = ' , angle_cmd)
                                     
+                                    ###### check if a door is detected
+                                    # elif doorleft and doormode==1:
+                                    #     robot=[[0,0]]                                                     
+                                    #     #hough.plot_line_between_points(robot,projection[0], ax)                          # Line between robot and mean of side watched
+                                    #     angle_cmd, x_cmd = wall.manage_far(projection1[0])
+                                    #     print('Try go in door enterpoint : x =', x_cmd, ', angle = ' , angle_cmd)
+                                    
                                     ###### if no other constraints --> follow with Hough Line
                                     else:
                                         if getobs.side!='back':
@@ -859,7 +1161,7 @@ def main():
                                                 new_side='right'
                                             elif mean_points[0][1]>=0:
                                                 getobs.side='left'
-                                                new_side='left'                                                                 # Normal Hough follow
+                                                new_side='left'                                                             # Normal Hough follow
                                         hough.plot_hough_points(hough_points,ax)                                            # Hough point in green
                                         hough.plot_mean_points(mean_points,ax)                                              # Mean point in red
                                         P1,P2 = tri_listes_points(hough_points,mean_points)                                 # Filter in order to have a regular angle (plot_line takes the smallest first)
@@ -877,7 +1179,6 @@ def main():
                                 previous_side=getobs.side
                                 getobs.side='None'
             
-            ###### Back Side
             #elif getobs.side=='back':
             elif new_side=='back' or getobs.side=='back':
                 if new_side== 'left':
@@ -896,86 +1197,26 @@ def main():
                     x_cmd = 2.5
                 # else :
                 #     getobs.side=previous_side
-
+            
+            ## put for testing
+            # angle_cmd = 0
+            # x_cmd=0
             cmd_publisher(x_cmd,angle_cmd)
+            #cmd_publisher(x_door,angle_door)
+
             #print("---------------------------------------")
             ax.set_xlabel('X')  # Set plot labels and limits
             ax.set_ylabel('Y')
-            ax.set_xlim(-7, 7)
-            ax.set_ylim(-7, 7)
+            ax.set_xlim(-12, 12)
+            ax.set_ylim(-12, 12)
             ax.grid(True)
             plt.pause(0.001)    # Update the plot
     plot_data()                 # Call the plot_data function
     rospy.sleep(0.01)
     rospy.spin()                # Spin ROS
 
-###################### HAND TEST  ###################
-#### the main i used for testing hough transform (change the parameter on find_best_row to keep more than one line)
-#### works with hand test but there is an issue when using on gazebo simulation
-# def main():
-    
-
-#     #SET1
-#     x_array = [4.5 , 5 , 5.5, 6, 7  , 8 ,9    ]
-#     y_array = [9   , 8 , 7  , 6, 5.5, 5 , 4.5 ]
-    
-#     #SET2
-#     x_array = [4.25 , 4.5 , 4.75, 5, 6 ,7 , 8   ]
-#     y_array = [ 8 , 7  , 6 , 5, 4.75, 4.5 , 4.25 ]
-
-#     #SET3
-#     x_array = [4.25 , 4.5 , 4.75, 5, 6 ,7 , 8 , 9  ]
-#     y_array = [ 8 , 7  , 6 , 5, 4.75, 4.5 , 4.25, 4 ]
-
-#     #SET4
-#     x_array = [4, 4.25 , 4.5 , 4.75, 5, 6 ,7 , 8 , 9  ]
-#     y_array = [9, 8 , 7  , 6 , 5, 4.75, 4.5 , 4.25, 4 ]
-
-#     x_array = [4, 4.25 , 4.5 , 4.75, 5, 6 ,7 , 8 , 9  ]
-#     y_array = [9, 8 , 7  , 6 , 5, 4.75, 4.5 , 4.25, 4 ]
-#     #SET5
-#     # x_array = [ 5, 6 ,7 , 8 , 9  ]
-#     # y_array = [ 5, 4.75, 4.5 , 4.25, 4 ]
-
-#     #SET6
-#     # x_array = [5, 5 , 5 , 5, 5, 6 ,7 , 8 , 9  ]
-#     # y_array = [9, 8 , 7  , 6 , 5, 5, 5 , 5, 5 ]
-
-#     # # #SET6
-#     # x_array = [5, 5 , 5 , 5, 5]
-#     # y_array = [9, 8 , 7  , 6 , 5 ]
-#     ######################################
-#     H = HoughTransform()
-#     fig, ax = plt.subplots()
-
-#     hough_points, mean_points=H.best_hough_point(x_array,y_array)
-
-#     print('--------- main results ----------')
-#     print('HOUGH_POINTS : ' , hough_points)
-#     print('MEAN_POINTS : ' , mean_points)
-#     print('---------------------------------')
-
-#     H.plot_init_points(x_array,y_array,ax)
-#     H.plot_hough_points(hough_points,ax)
-#     H.plot_mean_points(mean_points,ax)
-
-#     H.plot_line_between_points(hough_points,mean_points,ax)
-
-#     plt.grid(color = 'black', linewidth = 0.2)
-    
-#     ################   TEST   ##############
-
-#     # test = [ 9.558,  8.616,  7.675,  6.734 , 5.792,  5.72,   5.647 , 5.575 , 5.502]
-#     # print('in test : ')
-#     # print(H.valeurs_similaires(test))
-#     #######################
-#     plt.show()       ######
-#     #######################
 if __name__ == '__main__':
 
     main()
 
-
 ###################################################################################
-
- 
