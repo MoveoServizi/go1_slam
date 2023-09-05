@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <launch>
 	
-    <arg name="world" default="$(find mobile_robot)/world/map2.world"/>
+    <arg name="world" default="$(find mobile_robot)/world/map3.world"/>
     <param name="robot_description" command="xacro '$(find mobile_robot)/urdf/rover.urdf.xacro'"/>
     
 
